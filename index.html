@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lookout — S.54 Bumping Tracker</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ============ HEADER ============ -->
+  <header class="app-header">
+    <div class="brand">
+      <div class="logo-placeholder" title="Lookout Logo">LOOKOUT</div>
+      <div class="brand-text">
+        <h1>S.54 Bumping Tracker</h1>
+        <span class="subtitle">Section 54 Layoff &amp; Domino Chain Manager</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-primary" id="btnAddCase">+ Add Case</button>
+      <button class="btn btn-secondary" id="btnUploadSeniority">Upload Seniority List</button>
+      <input type="file" id="seniorityFile" accept=".csv,text/csv" hidden />
+    </div>
+  </header>
+
+  <!-- ============ NAV TABS ============ -->
+  <nav class="tabs">
+    <button class="tab active" data-view="dashboard">Dashboard</button>
+    <button class="tab" data-view="cases">Cases</button>
+    <button class="tab" data-view="chains">Domino Chains</button>
+    <button class="tab" data-view="seniority">Seniority List</button>
+  </nav>
+
+  <main id="main">
+    <!-- Views are rendered here by app.js -->
+  </main>
+
+  <!-- ============ CASE FORM MODAL ============ -->
+  <div class="modal-overlay" id="modalOverlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h2 id="modalTitle">Add Bumping Case</h2>
+        <button class="modal-close" id="modalClose" aria-label="Close">&times;</button>
+      </div>
+      <form id="caseForm" class="case-form" novalidate>
+        <!-- Form fields injected by app.js -->
+      </form>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
