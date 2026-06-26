@@ -1,11 +1,16 @@
 {
   // Cloudflare Workers static-assets deploy for this local-first app.
-  // There is no server/Worker code — we only serve the static files
-  // (index.html, app.js, styles.css) as assets. See .assetsignore for
-  // what is excluded from the upload.
-  "name": "lookout-s54-tracker",
+  // No server/Worker code — only the static files in ./public are served.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "lookoutbumpingtracker",
   "compatibility_date": "2026-06-26",
+  "observability": {
+    "enabled": true
+  },
   "assets": {
     "directory": "./public"
-  }
+  },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
 }
