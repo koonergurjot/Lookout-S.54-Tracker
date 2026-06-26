@@ -49,15 +49,42 @@ A sample file, `sample-seniority.csv`, is included so you can try it immediately
 
 ## Core concepts
 
-- **7-Day Decision Deadline** is auto-calculated as *S.54 Notice Date + 7 days*.
+- **Timelines (auto-calculated):** *7-Day Decision Deadline* and the
+  *60-Day Bumping/Recall Deadline*, both measured from the S.54 Notice Date.
 - **Auto chain creation:** setting *Bumps Into* creates the next case and links it.
   The bumping employee is marked *Completed*; the bumped employee becomes
-  *Decision Required*.
-- **Validation is non-blocking:** missing required fields are highlighted and
-  flagged everywhere, but you can always save (warnings, never blocks).
+  *Decision Required*. The auto-created case also captures its own seniority
+  snapshot — closing the "missed downstream person" gap.
 
 ### Statuses
 `Pending` → `Decision Required` → `Completed` / `Laid Off`
+
+## Compliance / defensibility features
+
+These exist because labour-relations decisions must be defensible:
+
+- **Required-field enforcement (hard).** A case cannot be saved without the
+  critical fields (Name, S.54 Notice Date, Effective Date). Configurable.
+- **Status gates.** You can keep a draft in *Pending*, but you cannot advance a
+  case into *Decision Required / Completed / Laid Off* without the data that
+  status implies (e.g. *Completed* requires a recorded decision **and** an
+  outcome). The form shows live 🔒 hints and blocks the save with a reason.
+- **Seniority snapshot per case.** When a case is created/decided, the
+  employee's seniority record is **frozen** with a timestamp and the provenance
+  of the uploaded list (filename + upload time) — what the list showed *at the
+  time*. Refreshable from the form.
+- **Decision timestamps.** The exact moment "Decision made" is first recorded
+  is stamped and shown.
+- **Audit log.** Every create / edit / decision / chain link / seniority upload
+  is recorded with timestamp, operator, the case, and a field-level
+  before→after diff. View it under the **Audit Log** tab, see per-case history
+  inside each case form, and **Export CSV** for the record.
+- **Soft warnings (non-blocking)** still flag missing recommended fields,
+  overdue 7-day/60-day windows, incomplete chains, and missing snapshots —
+  everywhere, without blocking you.
+
+> Single-user tool, so the audit "operator" is a fixed label (`HR/LR User`),
+> editable via `OPERATOR` in `app.js`.
 
 ---
 
@@ -80,8 +107,12 @@ A sample file, `sample-seniority.csv`, is included so you can try it immediately
 Everything you'd normally want to tweak is near the top of `app.js`:
 
 - **Decision window length / upcoming-deadline window** — `CONFIG.DECISION_WINDOW_DAYS`, `CONFIG.UPCOMING_DEADLINE_DAYS`.
+- **Secondary (60-day) window** — `CONFIG.SECONDARY_WINDOW` (`days`, `label`, `short`).
 - **Status options** — `CONFIG.STATUSES`.
 - **Which fields are required (flagged when missing)** — `CONFIG.REQUIRED_FIELDS`.
+- **Hard enforcement on/off + which fields block saving** — `CONFIG.ENFORCE_CRITICAL`, `CONFIG.CRITICAL_FIELDS`.
+- **Status gates (what data each status requires)** — `CONFIG.STATUS_GATES`.
+- **Audit operator label** — `OPERATOR`.
 - **Add / rename a case field** — add it to `newCase()`, give it a label in
   `FIELD_LABELS`, and add an input to `buildFormHTML()` + a line in `readForm()`.
 - **How CSV columns are recognized** — `SENIORITY_COLUMNS` (each field lists the
