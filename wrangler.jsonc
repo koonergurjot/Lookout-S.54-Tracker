@@ -1,0 +1,11 @@
+{
+  // Cloudflare Workers static-assets deploy for this local-first app.
+  // There is no server/Worker code — we only serve the static files
+  // (index.html, app.js, styles.css) as assets. See .assetsignore for
+  // what is excluded from the upload.
+  "name": "lookout-s54-tracker",
+  "compatibility_date": "2026-06-26",
+  "assets": {
+    "directory": "./public"
+  }
+}

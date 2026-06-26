@@ -15,16 +15,28 @@ required. Data is stored in your browser's `localStorage`.
 **Option A — just open the file (simplest)**
 
 1. Download/clone this folder.
-2. Double-click `index.html` to open it in any modern browser (Chrome, Edge, Firefox).
+2. Open **`public/index.html`** in any modern browser (Chrome, Edge, Firefox).
 3. Done. It works fully offline.
 
 **Option B — local dev server** (only if your browser blocks `file://` features)
 
 ```bash
-# from inside this folder, pick one:
-python3 -m http.server 8000
+# from inside this folder:
+python3 -m http.server 8000 --directory public
 #   then visit http://localhost:8000
 ```
+
+**Option C — deploy to Cloudflare (optional)**
+
+The app is static, so it deploys as Cloudflare Workers static assets. The
+included `wrangler.jsonc` points at `./public`, so:
+
+```bash
+npx wrangler deploy
+```
+
+Only the files in `public/` are published — no server code, no `node_modules`,
+no repo internals.
 
 > Your data lives in the browser on the machine you use it on. Using the same
 > browser on the same computer keeps your cases between sessions. Clearing
@@ -44,7 +56,7 @@ python3 -m http.server 8000
 4. Watch the chain build under the **Domino Chains** tab.
 5. The **Dashboard** flags overdue decisions, upcoming deadlines, and missing info.
 
-A sample file, `sample-seniority.csv`, is included so you can try it immediately.
+A sample file, `public/sample-seniority.csv`, is included so you can try it immediately.
 
 ---
 
@@ -91,15 +103,17 @@ These exist because labour-relations decisions must be defensible:
 
 ## Project structure
 
-| File                   | Purpose                                                        |
-|------------------------|----------------------------------------------------------------|
-| `index.html`           | Page shell: header, tabs, modal container.                     |
-| `styles.css`           | All styling (dark-blue / teal palette).                        |
-| `app.js`               | All logic: storage, chain creation, views, form, CSV import.   |
-| `sample-seniority.csv` | Example seniority file to test the upload + auto-fill.         |
+| File                          | Purpose                                                        |
+|-------------------------------|----------------------------------------------------------------|
+| `public/index.html`           | Page shell: header, tabs, modal container.                     |
+| `public/styles.css`           | All styling (dark-blue / teal palette).                        |
+| `public/app.js`               | All logic: storage, chain creation, views, form, xlsx/csv import. |
+| `public/sample-seniority.csv` | Example seniority file to test the upload + auto-fill.         |
+| `wrangler.jsonc`              | Cloudflare static-assets deploy config (serves `public/`).     |
 
-`app.js` is organized top-to-bottom in clearly commented sections:
-**CONFIG → STORAGE → helpers → CSV parser → views → form → save/chain logic → events → bootstrap.**
+The app lives entirely in **`public/`** (the only thing that deploys). `app.js`
+is organized top-to-bottom in clearly commented sections:
+**CONFIG → STORAGE → audit → helpers → CSV/XLSX parsers → views → form → save/chain logic → events → bootstrap.**
 
 ---
 
@@ -119,8 +133,8 @@ Everything you'd normally want to tweak is near the top of `app.js`:
 - **How seniority columns (xlsx/csv) are recognized** — `COLUMN_MATCHERS` (one
   matcher function per field, tested against each normalized header cell).
 - **Colors / look & feel** — CSS variables at the top of `styles.css` (`:root`).
-- **Lookout logo** — replace the `.logo-placeholder` element in `index.html`
-  with an `<img src="logo.png">`.
+- **Lookout logo** — replace the `.logo-placeholder` element in
+  `public/index.html` with an `<img src="logo.png">` (drop `logo.png` in `public/`).
 
 ---
 
