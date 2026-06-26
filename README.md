@@ -34,8 +34,9 @@ python3 -m http.server 8000
 
 ## Quick start
 
-1. **Upload Seniority List** (top-right) → choose a `.csv` file. This powers
-   auto-fill and suggestions. (Excel users: *Save As → CSV* first.)
+1. **Upload Seniority List** (top-right) → choose an `.xlsx` **or** `.csv` file.
+   This powers auto-fill and suggestions. Excel files are read directly — no
+   conversion needed.
 2. Click **+ Add Case**. Start typing a name — pick from the seniority list and
    Site / Position / Seniority Hours auto-fill.
 3. In **Bumps Into**, type the employee this person displaces. On save, the app
@@ -115,17 +116,41 @@ Everything you'd normally want to tweak is near the top of `app.js`:
 - **Audit operator label** — `OPERATOR`.
 - **Add / rename a case field** — add it to `newCase()`, give it a label in
   `FIELD_LABELS`, and add an input to `buildFormHTML()` + a line in `readForm()`.
-- **How CSV columns are recognized** — `SENIORITY_COLUMNS` (each field lists the
-  header names it will match, case-insensitive).
+- **How seniority columns (xlsx/csv) are recognized** — `COLUMN_MATCHERS` (one
+  matcher function per field, tested against each normalized header cell).
 - **Colors / look & feel** — CSS variables at the top of `styles.css` (`:root`).
 - **Lookout logo** — replace the `.logo-placeholder` element in `index.html`
   with an `<img src="logo.png">`.
 
 ---
 
+## Seniority file parsing (xlsx & csv)
+
+Both `.xlsx` and `.csv` are read **directly in the browser, offline, with no
+library** — the `.xlsx` reader uses the browser's built-in `DecompressionStream`
+to unzip and `DOMParser` to read the cells. It is tuned for real Lookout
+seniority reports:
+
+- **Header auto-detection** — report title rows (e.g. “Lookout Housing…”,
+  “Seniority Report”, the quarter) above the real header are skipped; the header
+  row is found wherever it sits.
+- **Flexible column mapping** — matched on content, not position:
+  - **Name** ← “Last, First” / “Last, First Name” / “Name” / “Employee”
+  - **Position** ← “Job class” / “Position” / “Classification” / “Title”
+  - **Site** ← “Location” / “Site” / “Facility”
+  - **Seniority Hours** ← “Total Seniority” / “Total SEN…” / “Hours”
+- Footer/total rows and blanks are skipped; seniority values are cleaned
+  (commas stripped, float noise rounded to 2 dp).
+
+Verified against three real reports (Q4 2025, Q1 2026, May 2026) — 1,454 /
+1,485 / 1,477 employees parsed exactly. To recognize a new column name later,
+edit `COLUMN_MATCHERS` in `app.js`.
+
+> Browser support for direct `.xlsx`: any current Chrome/Edge/Firefox/Safari
+> (needs `DecompressionStream`). The app falls back with a clear message if not
+> available — save as `.csv` in that rare case. Legacy `.xls` is not supported.
+
 ## Notes & limits
 
-- Excel `.xlsx` is **not** parsed directly (keeps the app dependency-free). Save
-  as `.csv` first — basic and reliable.
 - Data is per-browser. To move data between machines, you'd export/import
   `localStorage` (not built in — kept intentionally simple).

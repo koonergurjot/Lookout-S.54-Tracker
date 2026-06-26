@@ -12,7 +12,7 @@
    • CONFIG below       → decision/secondary windows, statuses, required &
                           critical fields, status gates, enforcement toggle
    • newCase() below    → add/remove/rename fields on a bumping case
-   • SENIORITY_COLUMNS  → how the uploaded CSV columns are matched
+   • COLUMN_MATCHERS    → how seniority xlsx/csv columns are matched
    ============================================================ */
 
 /* ---------------- CONFIG ---------------- */
@@ -272,37 +272,231 @@ function parseCSV(text) {
   return rows.filter(r => r.some(c => c.trim() !== ''));
 }
 
-// Flexible header matching → which CSV columns map to which case field.
-const SENIORITY_COLUMNS = {
-  name: ['name', 'employee', 'employee name', 'full name'],
-  site: ['site', 'location', 'facility', 'department', 'dept'],
-  position: ['position', 'job', 'title', 'classification', 'role'],
-  seniorityHours: ['seniority hours', 'seniority', 'hours', 'senioritytotal', 'total hours'],
+/* ============================================================
+   COLUMN MATCHING  — maps a header cell to one of our fields.
+   Real Lookout reports vary ("Last, First" / "Last, First Name",
+   "Job class", "Location", "Total Seniority" / "Total SEN CV+SAP May")
+   and put the header several rows down under report titles. Each matcher
+   tests a normalized (lowercased/trimmed) header cell.
+   Tune these to recognize new column names later.
+   ============================================================ */
+const COLUMN_MATCHERS = {
+  name:           h => h.includes('last, first') || h.includes('last,first') || h.includes('employee name') || h.includes('full name') || h === 'name' || h === 'employee',
+  position:       h => h.includes('job class') || h.includes('position') || h.includes('classification') || h.includes('title') || h === 'job' || h === 'role',
+  site:           h => h.includes('location') || h.includes('site') || h.includes('facility') || h.includes('department') || h === 'dept',
+  seniorityHours: h => h.includes('total sen') || h.includes('seniority') || (h.includes('total') && h.includes('sen')) || h === 'hours' || h.includes('total hours'),
 };
+const norm = s => String(s ?? '').trim().toLowerCase();
 
-function importSeniorityCSV(text) {
-  const rows = parseCSV(text);
-  if (rows.length < 2) throw new Error('CSV appears to be empty or has no data rows.');
-  const headers = rows[0].map(h => h.trim().toLowerCase());
-  const idx = {};
-  for (const field in SENIORITY_COLUMNS) {
-    idx[field] = headers.findIndex(h => SENIORITY_COLUMNS[field].includes(h));
+// Score a row by how many of our fields its cells match → used to find the header.
+function headerScore(row) {
+  const matched = new Set();
+  row.forEach(cell => {
+    const h = norm(cell);
+    if (!h) return;
+    for (const field in COLUMN_MATCHERS) if (COLUMN_MATCHERS[field](h)) matched.add(field);
+  });
+  return matched;
+}
+
+/* Turn a raw 2D grid (from CSV or XLSX) into a seniority list.
+   Auto-detects the header row (title/blank rows above are skipped). */
+function rowsToSeniority(rows) {
+  if (!rows || !rows.length) throw new Error('The file appears to be empty.');
+
+  // Find the best header row in the first 25 rows: most fields matched,
+  // and it MUST locate at least a name and a seniority column.
+  let headerRow = -1, best = 0;
+  const scan = Math.min(rows.length, 25);
+  for (let r = 0; r < scan; r++) {
+    const m = headerScore(rows[r]);
+    if (m.has('name') && m.has('seniorityHours') && m.size > best) { best = m.size; headerRow = r; }
   }
-  if (idx.name === -1) throw new Error('Could not find a "Name" column in the file.');
+  if (headerRow === -1)
+    throw new Error('Could not find the header row.\nExpected columns like "Last, First", "Job class", "Location" and "Total Seniority".');
+
+  // Map each field to a column index from the chosen header row.
+  const headers = rows[headerRow];
+  const idx = { name: -1, position: -1, site: -1, seniorityHours: -1 };
+  headers.forEach((cell, i) => {
+    const h = norm(cell);
+    if (!h) return;
+    for (const field in COLUMN_MATCHERS) {
+      if (idx[field] === -1 && COLUMN_MATCHERS[field](h)) idx[field] = i;
+    }
+  });
 
   const list = [];
-  for (let r = 1; r < rows.length; r++) {
+  for (let r = headerRow + 1; r < rows.length; r++) {
     const cols = rows[r];
-    const name = (cols[idx.name] || '').trim();
-    if (!name) continue;
+    const name = (cols[idx.name] || '').toString().trim();
+    if (!name) continue;                              // require a name; skips blanks/footers
+    if (/^(total|grand total)\b/i.test(name)) continue;
     list.push({
       name,
-      site: idx.site > -1 ? (cols[idx.site] || '').trim() : '',
-      position: idx.position > -1 ? (cols[idx.position] || '').trim() : '',
-      seniorityHours: idx.seniorityHours > -1 ? (cols[idx.seniorityHours] || '').trim().replace(/[, ]/g, '') : '',
+      site: idx.site > -1 ? (cols[idx.site] || '').toString().trim() : '',
+      position: idx.position > -1 ? (cols[idx.position] || '').toString().trim() : '',
+      seniorityHours: cleanHours(idx.seniorityHours > -1 ? cols[idx.seniorityHours] : ''),
     });
   }
+  if (!list.length) throw new Error('Found the header but no employee rows below it.');
   return list;
+}
+
+// Normalize a seniority value: strip commas/spaces, round float noise to 2dp.
+function cleanHours(v) {
+  if (v === '' || v === null || v === undefined) return '';
+  const n = Number(String(v).replace(/[, ]/g, ''));
+  if (!isFinite(n)) return String(v).trim();
+  return Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
+}
+
+// CSV entry point (kept for compatibility): parse → map.
+function importSeniorityCSV(text) { return rowsToSeniority(parseCSV(text)); }
+
+/* Route an uploaded File to the right parser by extension/signature → list. */
+async function parseSeniorityFile(file) {
+  const isXlsx = /\.xlsx$/i.test(file.name) ||
+    file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  if (isXlsx) {
+    if (typeof DecompressionStream === 'undefined')
+      throw new Error('This browser cannot read .xlsx (no DecompressionStream). Please use a current Chrome/Edge/Firefox, or save the file as .csv.');
+    const buf = await file.arrayBuffer();
+    return rowsToSeniority(await parseXLSX(buf));
+  }
+  if (/\.xls$/i.test(file.name)) throw new Error('Legacy .xls is not supported — save it as .xlsx or .csv.');
+  return rowsToSeniority(parseCSV(await file.text()));
+}
+
+/* ============================================================
+   XLSX READER  — dependency-free, offline.
+   An .xlsx is a ZIP of XML. We unzip with the browser's built-in
+   DecompressionStream and read the cells with DOMParser. No libraries.
+   Returns the first worksheet as a 2D array of strings.
+   ============================================================ */
+async function parseXLSX(arrayBuffer) {
+  const files = await unzip(new Uint8Array(arrayBuffer));
+  const dec = new TextDecoder('utf-8');
+  const getText = path => (files[path] ? dec.decode(files[path]) : '');
+
+  const shared = parseSharedStrings(getText('xl/sharedStrings.xml'));
+  const sheetPath = firstSheetPath(files, getText);
+  const sheetXml = getText(sheetPath);
+  if (!sheetXml) throw new Error('Could not read the worksheet inside the .xlsx file.');
+  return parseSheetXml(sheetXml, shared);
+}
+
+// Locate the first worksheet's XML path via the workbook relationships.
+function firstSheetPath(files, getText) {
+  try {
+    const wb = new DOMParser().parseFromString(getText('xl/workbook.xml'), 'application/xml');
+    const sheet = [...wb.getElementsByTagName('*')].find(e => e.localName === 'sheet');
+    const rid = sheet && (sheet.getAttribute('r:id') || sheet.getAttribute('id'));
+    if (rid) {
+      const rels = new DOMParser().parseFromString(getText('xl/_rels/workbook.xml.rels'), 'application/xml');
+      const rel = [...rels.getElementsByTagName('*')].find(e => e.localName === 'Relationship' && e.getAttribute('Id') === rid);
+      let target = rel && rel.getAttribute('Target');
+      if (target) { target = target.replace(/^\/?xl\//, '').replace(/^\//, ''); return 'xl/' + target.replace(/^xl\//, ''); }
+    }
+  } catch { /* fall through */ }
+  // Fallback: first worksheet file present.
+  const key = Object.keys(files).find(k => /^xl\/worksheets\/sheet\d+\.xml$/i.test(k));
+  if (!key) throw new Error('No worksheet found inside the .xlsx file.');
+  return key;
+}
+
+function parseSharedStrings(xml) {
+  if (!xml) return [];
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  return [...doc.getElementsByTagName('*')].filter(e => e.localName === 'si').map(si => {
+    // Concatenate every <t> within the shared-string item (handles rich-text runs).
+    return [...si.getElementsByTagName('*')].filter(e => e.localName === 't').map(t => t.textContent).join('');
+  });
+}
+
+function parseSheetXml(xml, shared) {
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  const rowsEls = [...doc.getElementsByTagName('*')].filter(e => e.localName === 'row');
+  const grid = [];
+  let maxCol = 0;
+  for (const rowEl of rowsEls) {
+    const cells = [...rowEl.children].filter(e => e.localName === 'c');
+    const arr = [];
+    for (const c of cells) {
+      const ref = c.getAttribute('r') || '';
+      const col = colIndex(ref);
+      const t = c.getAttribute('t');
+      let value = '';
+      if (t === 'inlineStr') {
+        const is = [...c.getElementsByTagName('*')].filter(e => e.localName === 't').map(e => e.textContent).join('');
+        value = is;
+      } else {
+        const vEl = [...c.children].find(e => e.localName === 'v');
+        const raw = vEl ? vEl.textContent : '';
+        if (t === 's') value = shared[parseInt(raw, 10)] ?? '';
+        else value = raw;          // number, boolean, or general
+      }
+      const i = col >= 0 ? col : arr.length;
+      arr[i] = value;
+      if (i + 1 > maxCol) maxCol = i + 1;
+    }
+    for (let i = 0; i < arr.length; i++) if (arr[i] === undefined) arr[i] = '';
+    grid.push(arr);
+  }
+  // Pad ragged rows so column indexes line up.
+  return grid.map(r => { for (let i = 0; i < maxCol; i++) if (r[i] === undefined) r[i] = ''; return r; });
+}
+
+// "B5" → 1 (zero-based column index); ignores the row number.
+function colIndex(ref) {
+  const m = /^([A-Za-z]+)/.exec(ref);
+  if (!m) return -1;
+  let n = 0;
+  for (const ch of m[1].toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n - 1;
+}
+
+/* ---- Minimal ZIP reader (central directory + DecompressionStream) ---- */
+async function unzip(bytes) {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  // Find End Of Central Directory record (scan back from the end).
+  let eocd = -1;
+  for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 65557); i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd === -1) throw new Error('Not a valid .xlsx (ZIP) file.');
+  const cdCount = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);   // central directory offset
+
+  const out = {};
+  for (let n = 0; n < cdCount; n++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) break;
+    const method   = dv.getUint16(p + 10, true);
+    const compSize = dv.getUint32(p + 20, true);
+    const nameLen  = dv.getUint16(p + 28, true);
+    const extraLen = dv.getUint16(p + 30, true);
+    const cmtLen   = dv.getUint16(p + 32, true);
+    const localOff = dv.getUint32(p + 42, true);
+    const name = new TextDecoder().decode(bytes.subarray(p + 46, p + 46 + nameLen));
+    // Read the local header to find where the data actually starts.
+    const lNameLen  = dv.getUint16(localOff + 26, true);
+    const lExtraLen = dv.getUint16(localOff + 28, true);
+    const dataStart = localOff + 30 + lNameLen + lExtraLen;
+    const comp = bytes.subarray(dataStart, dataStart + compSize);
+    // Only decode the parts we need (XML); skip others lazily? We decode all small.
+    if (/\.(xml|rels)$/i.test(name)) {
+      out[name] = method === 0 ? comp.slice() : await inflateRaw(comp);
+    }
+    p += 46 + nameLen + extraLen + cmtLen;
+  }
+  return out;
+}
+
+async function inflateRaw(bytes) {
+  const ds = new DecompressionStream('deflate-raw');
+  const stream = new Blob([bytes]).stream().pipeThrough(ds);
+  const buf = await new Response(stream).arrayBuffer();
+  return new Uint8Array(buf);
 }
 
 /* ============================================================
@@ -484,8 +678,9 @@ function chainNode(c, isLast) {
 function renderSeniority() {
   if (!Store.seniority.length)
     return `<div class="empty-state">No seniority list loaded.<br><br>
-      Click <strong>Upload Seniority List</strong> (top right) and choose a <strong>.csv</strong> file.<br>
-      <span class="muted">Expected columns: Name, Site, Position, Seniority Hours (header names are matched flexibly).</span></div>`;
+      Click <strong>Upload Seniority List</strong> (top right) and choose an <strong>.xlsx</strong> or <strong>.csv</strong> file.<br>
+      <span class="muted">Report titles above the header are skipped automatically. Columns are matched flexibly —
+      e.g. “Last, First”/“Name”, “Job class”/“Position”, “Location”/“Site”, “Total Seniority”/“Total SEN…”/“Hours”.</span></div>`;
 
   const rows = Store.seniority.map(p => `<tr>
     <td>${esc(p.name)}</td><td>${esc(p.site)}</td><td>${esc(p.position)}</td><td>${esc(p.seniorityHours)}</td>
@@ -1089,25 +1284,22 @@ function init() {
 
   // Seniority upload.
   document.getElementById('btnUploadSeniority').addEventListener('click', () => document.getElementById('seniorityFile').click());
-  document.getElementById('seniorityFile').addEventListener('change', e => {
+  document.getElementById('seniorityFile').addEventListener('change', async e => {
     const file = e.target.files[0];
+    e.target.value = '';                 // allow re-upload of the same file
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const list = importSeniorityCSV(reader.result);
-        Store.seniority = list;
-        Store.seniorityMeta = { uploadedAt: new Date().toISOString(), filename: file.name, count: list.length };
-        Store.saveSeniority();
-        recordAudit('seniority-upload', null, [], `Loaded "${file.name}" — ${list.length} employees`);
-        toast(`Loaded ${list.length} employees`);
-        setView('seniority');
-      } catch (err) {
-        alert('Could not read file:\n' + err.message + '\n\nTip: Excel files must be saved as .csv first.');
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = '';  // allow re-upload of same file
+    try {
+      const list = await parseSeniorityFile(file);
+      Store.seniority = list;
+      Store.seniorityMeta = { uploadedAt: new Date().toISOString(), filename: file.name, count: list.length };
+      Store.saveSeniority();
+      recordAudit('seniority-upload', null, [], `Loaded "${file.name}" — ${list.length} employees`);
+      toast(`Loaded ${list.length} employees`);
+      setView('seniority');
+    } catch (err) {
+      alert('Could not read "' + file.name + '":\n\n' + err.message +
+        '\n\nSupported: .xlsx and .csv. (Older .xls must be re-saved as .xlsx or .csv.)');
+    }
   });
 
   render();
