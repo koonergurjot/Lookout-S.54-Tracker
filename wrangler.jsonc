@@ -1,4 +1,6 @@
 {
+  // Cloudflare Workers static-assets deploy for this local-first app.
+  // No server/Worker code — only the static files in ./public are served.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "lookoutbumpingtracker",
   "compatibility_date": "2026-06-26",
@@ -6,7 +8,7 @@
     "enabled": true
   },
   "assets": {
-    "directory": "."
+    "directory": "./public"
   },
   "compatibility_flags": [
     "nodejs_compat"

@@ -19,7 +19,7 @@
     <div class="header-actions">
       <button class="btn btn-primary" id="btnAddCase">+ Add Case</button>
       <button class="btn btn-secondary" id="btnUploadSeniority">Upload Seniority List</button>
-      <input type="file" id="seniorityFile" accept=".csv,text/csv" hidden />
+      <input type="file" id="seniorityFile" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden />
     </div>
   </header>
 
@@ -29,6 +29,7 @@
     <button class="tab" data-view="cases">Cases</button>
     <button class="tab" data-view="chains">Domino Chains</button>
     <button class="tab" data-view="seniority">Seniority List</button>
+    <button class="tab" data-view="audit">Audit Log</button>
   </nav>
 
   <main id="main">
