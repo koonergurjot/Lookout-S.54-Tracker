@@ -20,6 +20,9 @@
       <button class="btn btn-primary" id="btnAddCase">+ Add Case</button>
       <button class="btn btn-secondary" id="btnUploadSeniority">Upload Seniority List</button>
       <input type="file" id="seniorityFile" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden />
+      <button class="btn btn-secondary" id="btnExportData" title="Export all data (cases, seniority, audit, vacancies) as JSON">Export Data</button>
+      <button class="btn btn-secondary" id="btnImportData" title="Restore from a previously exported JSON file">Import Data</button>
+      <input type="file" id="importDataFile" accept=".json,application/json" hidden />
     </div>
   </header>
 
@@ -28,6 +31,7 @@
     <button class="tab active" data-view="dashboard">Dashboard</button>
     <button class="tab" data-view="cases">Cases</button>
     <button class="tab" data-view="chains">Domino Chains</button>
+    <button class="tab" data-view="vacancies">Vacancies</button>
     <button class="tab" data-view="seniority">Seniority List</button>
     <button class="tab" data-view="audit">Audit Log</button>
   </nav>

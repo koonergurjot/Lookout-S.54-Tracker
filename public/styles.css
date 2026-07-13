@@ -161,10 +161,14 @@ main { padding: 24px; max-width: 1200px; margin: 0 auto; }
   font-size: 12px;
   font-weight: 700;
 }
-.badge-pending { background: #e0e7ee; color: #486581; }
-.badge-decision { background: var(--warn-bg); color: var(--warn); }
-.badge-completed { background: var(--ok-bg); color: var(--ok); }
+.badge-notice { background: #e0e7ee; color: #486581; }
+.badge-listed { background: #e0e7ee; color: #486581; }
+.badge-meeting { background: var(--warn-bg); color: var(--warn); }
+.badge-election { background: var(--warn-bg); color: var(--warn); }
+.badge-placed { background: var(--ok-bg); color: var(--ok); }
 .badge-laidoff { background: var(--danger-bg); color: var(--danger); }
+.badge-recall { background: var(--danger-bg); color: var(--danger); }
+.badge-closed { background: #e0e7ee; color: #486581; }
 
 /* ---------- Flags / warnings ---------- */
 .flag {
@@ -297,10 +301,62 @@ main { padding: 24px; max-width: 1200px; margin: 0 auto; }
 }
 .snapshot-panel.ok { background: var(--ok-bg); border-color: #bfe3cd; }
 .snapshot-panel.warn { background: var(--warn-bg); border-color: #f0e0b8; }
+.snapshot-panel.danger { background: var(--danger-bg); border-color: #f3c6c0; }
 .snapshot-title { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
 .snapshot-body { font-size: 13px; margin-bottom: 8px; }
 .snapshot-panel.ok .snapshot-title { color: var(--ok); }
 .snapshot-panel.warn .snapshot-title { color: var(--warn); }
+.snapshot-panel.danger .snapshot-title { color: var(--danger); }
+
+/* ---------- Option-specific sub-fields, eligible-target list ---------- */
+.subfields {
+  border-left: 3px solid var(--teal);
+  padding: 4px 0 4px 14px;
+  margin: 0 0 14px 2px;
+}
+.target-list {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+.target-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+.target-item:last-child { border-bottom: none; }
+.target-item:hover { background: var(--bg); }
+.target-item .delta { color: var(--muted); font-variant-numeric: tabular-nums; }
+.target-item.target-flagged { background: var(--danger-bg); }
+
+/* ---------- Section headers inside the case form ---------- */
+.form-section-title {
+  font-weight: 700;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  margin: 22px 0 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.form-section-title:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+
+/* ---------- Vacancies view ---------- */
+.quick-add { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) auto; gap: 8px; align-items: end; margin-bottom: 16px; }
+.quick-add label { display: block; font-size: 12px; font-weight: 600; color: var(--navy); margin-bottom: 4px; }
+.quick-add input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; }
+
+/* ---------- Print (generated documents / case file) ---------- */
+@media print {
+  body { background: #fff; }
+}
 
 /* ---------- Case history (in form) ---------- */
 .case-history {
@@ -364,6 +420,7 @@ main { padding: 24px; max-width: 1200px; margin: 0 auto; }
 .toolbar input[type="search"] {
   padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; min-width: 220px;
 }
+.event-filter { padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; }
 .muted { color: var(--muted); }
 .chain-link { color: var(--teal-dark); cursor: pointer; text-decoration: underline; }
 
