@@ -1031,9 +1031,15 @@ function renderDashboard() {
   const onLeave = cases.filter(c => isActive(c) && c.onLeave);
   const leaveConflicts = onLeave.filter(leaveConflict);
 
+  // Soonest-first, so the most urgent case surfaces at the top of each list.
+  const sortByDate = (arr, dateFn) => [...arr].sort((a, b) => {
+    const da = dateFn(a) || '', db = dateFn(b) || '';
+    return da < db ? -1 : da > db ? 1 : 0;
+  });
+
   const listRows = (arr, label, dateFn) => arr.length
     ? `<table class="case-table"><thead><tr><th>Name</th><th>Position</th><th>Date</th><th>Status</th></tr></thead><tbody>
-        ${arr.map(c => `<tr class="row-click" data-edit="${c.id}">
+        ${sortByDate(arr, dateFn).map(c => `<tr class="row-click" data-edit="${c.id}">
           <td>${esc(c.name) || '<span class="muted">Unnamed</span>'}</td>
           <td>${esc(c.position) || '—'}</td>
           <td>${fmtDate(dateFn(c))}</td>
@@ -1110,11 +1116,17 @@ function renderCases() {
       <td>${statusBadge(c.status)}</td>
       <td class="muted">${esc(nextAction(c))}</td>
     </tr>`;
-  }).join('') : `<tr><td colspan="7"><div class="empty-state">No cases yet. Click <strong>+ Add Case</strong> to begin.</div></td></tr>`;
+  }).join('') : (Store.cases.length === 0
+    ? `<tr><td colspan="7"><div class="empty-state">No cases yet. Click <strong>+ Add Case</strong> to begin.</div></td></tr>`
+    : `<tr><td colspan="7"><div class="empty-state">No cases match your search${App.eventFilter ? ' and event filter' : ''}.<br><br>
+        <button type="button" class="btn btn-ghost btn-sm" id="btnClearCaseFilters">Clear filters</button></div></td></tr>`);
 
   return `
     <div class="toolbar">
-      <input type="search" id="caseSearch" placeholder="Search name, position, site…" value="${esc(App.search)}" />
+      <div class="search-wrap">
+        <input type="search" id="caseSearch" placeholder="Search name, position, site…" value="${esc(App.search)}" />
+        ${App.search ? `<button type="button" class="search-clear" id="btnClearSearch" aria-label="Clear search">&times;</button>` : ''}
+      </div>
       ${eventFilterHTML()}
       <span class="muted">${list.length} case${list.length === 1 ? '' : 's'}</span>
     </div>
@@ -1328,6 +1340,7 @@ function esc(s) {
    ============================================================ */
 let editingId = null;
 let pendingSnapshot = null;   // snapshot staged via the form's capture button
+let formInitialSnapshot = null; // JSON of the form's state at open, for the unsaved-changes guard
 
 function openCaseForm(id) {
   editingId = id || null;
@@ -1337,6 +1350,7 @@ function openCaseForm(id) {
   document.getElementById('modalOverlay').hidden = false;
   wireFormEvents(c);
   updateComputed();
+  formInitialSnapshot = JSON.stringify(readForm());
   const nameInput = document.getElementById('f_name');
   if (nameInput && !id) nameInput.focus();
 }
@@ -1344,6 +1358,19 @@ function openCaseForm(id) {
 function closeCaseForm() {
   document.getElementById('modalOverlay').hidden = true;
   editingId = null;
+  formInitialSnapshot = null;
+}
+
+// True if the form's fields have changed since the modal was opened.
+function isFormDirty() {
+  if (!document.getElementById('caseForm') || formInitialSnapshot === null) return false;
+  return JSON.stringify(readForm()) !== formInitialSnapshot;
+}
+
+// Close the modal, but confirm first if there are unsaved edits.
+function attemptCloseCaseForm() {
+  if (isFormDirty() && !confirm('Discard unsaved changes to this case?')) return;
+  closeCaseForm();
 }
 
 function buildFormHTML(c) {
@@ -1914,7 +1941,21 @@ function attachAutocomplete(inputId, listId, onPick) {
   const list = document.getElementById(listId);
   if (!input || !list) return;
 
-  function close() { list.hidden = true; list.innerHTML = ''; }
+  let items = [];
+  let activeIndex = -1;
+
+  function close() { list.hidden = true; list.innerHTML = ''; items = []; activeIndex = -1; }
+  function setActive(i) {
+    items.forEach(el => el.classList.remove('active'));
+    activeIndex = i;
+    const el = items[activeIndex];
+    if (el) { el.classList.add('active'); el.scrollIntoView({ block: 'nearest' }); }
+  }
+  function pick(item) {
+    const person = Store.seniority.find(p => p.name === item.dataset.name);
+    onPick(person);
+    close();
+  }
   input.addEventListener('input', () => {
     const q = input.value.trim().toLowerCase();
     if (!q || !Store.seniority.length) { close(); return; }
@@ -1924,14 +1965,19 @@ function attachAutocomplete(inputId, listId, onPick) {
       `<div class="autocomplete-item" data-name="${esc(p.name)}">${esc(p.name)} <small>— ${esc(p.position) || 'no position'}, ${esc(p.site) || 'no site'}${p.seniorityHours ? ', ' + esc(p.seniorityHours) + 'h' : ''}${p.employmentStatus ? ', ' + esc(p.employmentStatus) : ''}</small></div>`
     ).join('');
     list.hidden = false;
-    list.querySelectorAll('.autocomplete-item').forEach(item => {
-      item.addEventListener('mousedown', ev => {
-        ev.preventDefault();
-        const person = Store.seniority.find(p => p.name === item.dataset.name);
-        onPick(person);
-        close();
-      });
+    items = [...list.querySelectorAll('.autocomplete-item')];
+    activeIndex = -1;
+    items.forEach(item => {
+      item.addEventListener('mousedown', ev => { ev.preventDefault(); pick(item); });
     });
+  });
+  // Arrow-key navigation + Enter to pick + Escape to dismiss.
+  input.addEventListener('keydown', e => {
+    if (list.hidden || !items.length) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive((activeIndex + 1) % items.length); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((activeIndex - 1 + items.length) % items.length); }
+    else if (e.key === 'Enter' && activeIndex >= 0) { e.preventDefault(); pick(items[activeIndex]); }
+    else if (e.key === 'Escape') { close(); }
   });
   input.addEventListener('blur', () => setTimeout(close, 150));
 }
@@ -2026,7 +2072,7 @@ function generateCaseFileHTML(c) {
    ============================================================ */
 function wireFormEvents(c) {
   pendingSnapshot = null;
-  document.getElementById('btnCancel').addEventListener('click', closeCaseForm);
+  document.getElementById('btnCancel').addEventListener('click', attemptCloseCaseForm);
   document.getElementById('caseForm').addEventListener('submit', saveCase);
   ['f_noticeDate', 'f_seniorityListReceiptConfirmedDate', 'f_hireDate'].forEach(id => {
     const el = document.getElementById(id);
@@ -2151,6 +2197,21 @@ function wireViewEvents() {
     const s = document.getElementById('caseSearch');
     s.focus(); s.setSelectionRange(s.value.length, s.value.length);
   });
+  const clearSearch = document.getElementById('btnClearSearch');
+  if (clearSearch) clearSearch.addEventListener('click', () => {
+    App.search = '';
+    const main = document.getElementById('main');
+    main.innerHTML = renderCases();
+    wireViewEvents();
+    const s = document.getElementById('caseSearch');
+    if (s) s.focus();
+  });
+  const clearFilters = document.getElementById('btnClearCaseFilters');
+  if (clearFilters) clearFilters.addEventListener('click', () => {
+    App.search = '';
+    App.eventFilter = '';
+    render();
+  });
   const eventFilter = document.getElementById('eventFilter');
   if (eventFilter) eventFilter.addEventListener('change', () => {
     App.eventFilter = eventFilter.value;
@@ -2261,11 +2322,30 @@ function init() {
   Store.load();
 
   document.getElementById('btnAddCase').addEventListener('click', () => openCaseForm());
-  document.getElementById('modalClose').addEventListener('click', closeCaseForm);
+  document.getElementById('modalClose').addEventListener('click', attemptCloseCaseForm);
   document.getElementById('modalOverlay').addEventListener('click', e => {
-    if (e.target.id === 'modalOverlay') closeCaseForm();
+    if (e.target.id === 'modalOverlay') attemptCloseCaseForm();
   });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCaseForm(); });
+
+  // Global keyboard shortcuts — ignored while typing in a field, or while
+  // the case modal is open (Escape there triggers the unsaved-changes guard).
+  document.addEventListener('keydown', e => {
+    const modalOpen = !document.getElementById('modalOverlay').hidden;
+    if (e.key === 'Escape') { if (modalOpen) attemptCloseCaseForm(); return; }
+    if (modalOpen) return;
+    const tag = (e.target.tagName || '').toLowerCase();
+    const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable;
+    if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === '/') {
+      e.preventDefault();
+      if (App.view !== 'cases') setView('cases');
+      const s = document.getElementById('caseSearch');
+      if (s) s.focus();
+    } else if (e.key === 'n') {
+      e.preventDefault();
+      openCaseForm();
+    }
+  });
 
   document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => setView(t.dataset.view)));
 
@@ -2275,6 +2355,10 @@ function init() {
     const file = e.target.files[0];
     e.target.value = '';                 // allow re-upload of the same file
     if (!file) return;
+    const btn = document.getElementById('btnUploadSeniority');
+    const originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Reading file…';
     try {
       const list = await parseSeniorityFile(file);
       Store.seniority = list;
@@ -2286,6 +2370,9 @@ function init() {
     } catch (err) {
       alert('Could not read "' + file.name + '":\n\n' + err.message +
         '\n\nSupported: .xlsx and .csv. (Older .xls must be re-saved as .xlsx or .csv.)');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
     }
   });
 
