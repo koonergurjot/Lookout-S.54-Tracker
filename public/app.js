@@ -36,8 +36,8 @@ const CONFIG = {
   // A case can always sit in "Pending" as a draft. Advancing is gated.
   STATUS_GATES: {
     'Decision Required': ['noticeDate'],                       // need a deadline to act against
-    'Completed':         ['decisionMade', 'resolution'],       // a real, recorded outcome
-    'Laid Off':          ['decisionMade'],                     // an accepted-layoff decision
+    'Completed':         ['decisionMade', 'resolution', 'leaveOk'], // a real, recorded outcome
+    'Laid Off':          ['decisionMade', 'leaveOk'],          // an accepted-layoff decision
   },
 };
 
@@ -52,6 +52,9 @@ function newCase(overrides = {}) {
     seniorityHours: '',
     noticeDate: '',          // S.54 Notice Date (decision window start)
     effectiveDate: '',
+    onLeave: false,          // is this staff member currently on a leave of absence?
+    leaveReturnDate: '',     // expected return-to-work date, if onLeave
+    leaveType: '',           // optional: Medical / Parental / WCB / etc.
     decisionMade: false,
     decisionMadeAt: '',      // timestamp when decision was recorded (defensibility)
     optionChosen: '',
@@ -108,7 +111,8 @@ function recordAudit(action, caseObj, changes, details) {
 
 // Diff two case snapshots → list of {field, from, to} for audited fields.
 const AUDITED_FIELDS = ['name', 'site', 'position', 'seniorityHours', 'noticeDate',
-  'effectiveDate', 'decisionMade', 'optionChosen', 'bumpsIntoId', 'status', 'notes'];
+  'effectiveDate', 'onLeave', 'leaveReturnDate', 'leaveType',
+  'decisionMade', 'optionChosen', 'bumpsIntoId', 'status', 'notes'];
 function diffCase(before, after) {
   const changes = [];
   for (const f of AUDITED_FIELDS) {
@@ -170,6 +174,14 @@ function isOverdue(c) {
 }
 function isActive(c) { return c.status !== 'Completed' && c.status !== 'Laid Off'; }
 
+// True if the Effective Date is set earlier than the staff member's recorded
+// return-from-leave date — i.e. the bump/layoff would take effect while
+// they're still away. The effective date should instead be set to (or after)
+// the return date.
+function leaveConflict(c) {
+  return !!(c.onLeave && c.leaveReturnDate && c.effectiveDate && c.effectiveDate < c.leaveReturnDate);
+}
+
 /* ---------------- ENFORCEMENT: status gates & critical fields ---------------- */
 // A case "has a recorded resolution" if it bumps someone OR an option is chosen.
 function hasResolution(c) { return !!(c.bumpsIntoId || (c.optionChosen && c.optionChosen.trim())); }
@@ -178,11 +190,13 @@ function hasResolution(c) { return !!(c.bumpsIntoId || (c.optionChosen && c.opti
 function gateMet(c, req) {
   if (req === 'decisionMade') return !!c.decisionMade;
   if (req === 'resolution')   return hasResolution(c);
+  if (req === 'leaveOk')      return !leaveConflict(c);
   return c[req] !== '' && c[req] !== null && c[req] !== undefined;
 }
 function gateLabel(req) {
   if (req === 'resolution') return 'a recorded outcome (Bumps Into or Option Chosen)';
   if (req === 'decisionMade') return '“Decision made” checked';
+  if (req === 'leaveOk') return "an Effective Date on/after the staff member's return from leave";
   return fieldLabel(req);
 }
 // Returns [] if the target status is allowed, else the list of missing requirements.
@@ -193,7 +207,11 @@ function statusGateMissing(c, status) {
 // Hard-required critical fields that block saving entirely.
 function criticalMissing(c) {
   if (!CONFIG.ENFORCE_CRITICAL) return [];
-  return CONFIG.CRITICAL_FIELDS.filter(f => c[f] === '' || c[f] === null || c[f] === undefined);
+  const missing = CONFIG.CRITICAL_FIELDS.filter(f => c[f] === '' || c[f] === null || c[f] === undefined);
+  // Checking "on leave" without a return date makes the effective-date check
+  // impossible to defend, so treat the return date as critical in that case.
+  if (c.onLeave && !c.leaveReturnDate) missing.push('leaveReturnDate');
+  return missing;
 }
 
 /* ---------------- SENIORITY SNAPSHOT (defensibility) ---------------- */
@@ -228,6 +246,11 @@ function caseWarnings(c) {
   }
   if (c.status === 'Decision Required' && !c.decisionMade && !hasResolution(c))
     w.push('Awaiting decision');
+  // On-leave: flag missing return date, or an effective date that lands before it.
+  if (c.onLeave) {
+    if (!c.leaveReturnDate) w.push('On leave — return date not recorded');
+    else if (leaveConflict(c)) w.push(`Effective Date is before return from leave (returns ${fmtDate(c.leaveReturnDate)})`);
+  }
   // Defensibility: no frozen seniority snapshot backing this case.
   if (!c.seniaritySnapshot) w.push('No seniority snapshot on record');
   // Incomplete chain: a person was bumped but their own next move isn't resolved.
@@ -243,6 +266,7 @@ function caseWarnings(c) {
 const FIELD_LABELS = {
   name: 'Name', site: 'Site', position: 'Position', seniorityHours: 'Seniority Hours',
   noticeDate: 'S.54 Notice Date', effectiveDate: 'Effective Date',
+  onLeave: 'On Leave', leaveReturnDate: 'Expected Return Date', leaveType: 'Leave Type',
   decisionMade: 'Decision Made', decisionMadeAt: 'Decision Timestamp',
   optionChosen: 'Option Chosen', bumpsIntoId: 'Bumps Into', status: 'Status', notes: 'Notes',
 };
@@ -537,6 +561,8 @@ function renderDashboard() {
     return d !== null && d >= 0 && d <= CONFIG.UPCOMING_DEADLINE_DAYS;
   });
   const noSnapshot = cases.filter(c => !c.seniaritySnapshot);
+  const onLeave = cases.filter(c => isActive(c) && c.onLeave);
+  const leaveConflicts = onLeave.filter(leaveConflict);
 
   const listRows = (arr, label, which) => arr.length
     ? `<table class="case-table"><thead><tr><th>Name</th><th>Position</th><th>Deadline</th><th>Status</th></tr></thead><tbody>
@@ -547,6 +573,17 @@ function renderDashboard() {
           <td>${statusBadge(c.status)}</td></tr>`).join('')}
       </tbody></table>`
     : `<div class="empty-state">No ${label}.</div>`;
+
+  const leaveRows = onLeave.length
+    ? `<table class="case-table"><thead><tr><th>Name</th><th>Position</th><th>Return Date</th><th>Effective Date</th><th>Status</th></tr></thead><tbody>
+        ${onLeave.map(c => `<tr class="row-click" data-edit="${c.id}">
+          <td>${esc(c.name) || '<span class="muted">Unnamed</span>'}</td>
+          <td>${esc(c.position) || '—'}</td>
+          <td>${c.leaveReturnDate ? fmtDate(c.leaveReturnDate) : '<span class="flag">not recorded</span>'}</td>
+          <td>${c.effectiveDate ? fmtDate(c.effectiveDate) : '—'} ${leaveConflict(c) ? '<span class="flag">before return</span>' : ''}</td>
+          <td>${statusBadge(c.status)}</td></tr>`).join('')}
+      </tbody></table>`
+    : `<div class="empty-state">No staff currently marked on leave.</div>`;
 
   const seniorityBanner = Store.seniorityMeta
     ? `<div class="dash-section"><div class="form-warning" style="background:var(--ok-bg);color:var(--ok);border-color:#bfe3cd;">
@@ -562,12 +599,14 @@ function renderDashboard() {
       <div class="card ${overdue60.length ? 'alert' : 'ok'}"><div class="num">${overdue60.length}</div><div class="label">Overdue (${CONFIG.SECONDARY_WINDOW.short})</div></div>
       <div class="card ${upcoming.length ? 'warn' : 'ok'}"><div class="num">${upcoming.length}</div><div class="label">Upcoming Deadlines (≤${CONFIG.UPCOMING_DEADLINE_DAYS}d)</div></div>
       <div class="card ${noSnapshot.length ? 'warn' : 'ok'}"><div class="num">${noSnapshot.length}</div><div class="label">No Seniority Snapshot</div></div>
+      <div class="card ${leaveConflicts.length ? 'alert' : (onLeave.length ? 'warn' : 'ok')}"><div class="num">${onLeave.length}</div><div class="label">Staff On Leave</div></div>
     </div>
 
     ${seniorityBanner}
     <div class="dash-section"><h3>⚠️ Overdue Decisions (7-day)</h3>${listRows(overdue, 'overdue decisions', '7')}</div>
     <div class="dash-section"><h3>⏰ Overdue ${esc(CONFIG.SECONDARY_WINDOW.label)}</h3>${listRows(overdue60, 'overdue ' + CONFIG.SECONDARY_WINDOW.short + ' cases', '60')}</div>
     <div class="dash-section"><h3>⏳ Upcoming Deadlines</h3>${listRows(upcoming, 'upcoming deadlines', '7')}</div>
+    <div class="dash-section"><h3>🏖️ Staff On Leave</h3>${leaveRows}</div>
     <div class="dash-section"><h3>📋 Cases Missing Information</h3>${listRows(missing, 'cases missing info', '7')}</div>
   `;
 }
@@ -600,7 +639,7 @@ function renderCases() {
     const warns = caseWarnings(c);
     const next = c.bumpsIntoId ? Store.getCase(c.bumpsIntoId) : null;
     return `<tr class="row-click" data-edit="${c.id}">
-      <td><strong>${esc(c.name) || '<span class="muted">Unnamed</span>'}</strong>${warns.length ? `<span class="flag" title="${esc(warns.join(' • '))}">${warns.length} ⚠</span>` : ''}<br><span class="muted">${esc(c.site)}</span></td>
+      <td><strong>${esc(c.name) || '<span class="muted">Unnamed</span>'}</strong>${c.onLeave ? `<span class="flag flag-warn" title="On leave${c.leaveReturnDate ? ' — returns ' + esc(fmtDate(c.leaveReturnDate)) : ''}">🏖 Leave</span>` : ''}${warns.length ? `<span class="flag" title="${esc(warns.join(' • '))}">${warns.length} ⚠</span>` : ''}<br><span class="muted">${esc(c.site)}</span></td>
       <td>${esc(c.position) || '—'}</td>
       <td>${c.seniorityHours !== '' ? esc(c.seniorityHours) : '<span class="flag">missing</span>'}</td>
       <td>${fmtDate(decisionDeadline(c))} ${deadlineFlag(c)}</td>
@@ -744,7 +783,7 @@ function renderAudit() {
 function displayVal(field, v) {
   if (v === true) return 'Yes';
   if (v === false) return 'No';
-  if ((field === 'noticeDate' || field === 'effectiveDate') && v) return fmtDate(v);
+  if ((field === 'noticeDate' || field === 'effectiveDate' || field === 'leaveReturnDate') && v) return fmtDate(v);
   return v == null ? '' : String(v);
 }
 
@@ -813,6 +852,16 @@ function buildFormHTML(c) {
       <div><label>S.54 Notice Date <span class="req">*</span></label><input type="date" id="f_noticeDate" value="${esc(c.noticeDate)}" /></div>
       <div><label>Effective Date <span class="req">*</span></label><input type="date" id="f_effectiveDate" value="${esc(c.effectiveDate)}" /></div>
     </div>
+
+    <div class="form-row checkbox-row">
+      <input type="checkbox" id="f_onLeave" ${c.onLeave ? 'checked' : ''} />
+      <label for="f_onLeave">Staff member is currently on a leave of absence</label>
+    </div>
+    <div class="form-row two" id="leaveFields" ${c.onLeave ? '' : 'hidden'}>
+      <div><label>Expected Return Date <span class="req">*</span></label><input type="date" id="f_leaveReturnDate" value="${esc(c.leaveReturnDate)}" /></div>
+      <div><label>Leave Type <span class="muted">(optional)</span></label><input type="text" id="f_leaveType" value="${esc(c.leaveType)}" placeholder="e.g. Medical, Parental, WCB" /></div>
+    </div>
+    <div class="form-warning" id="leaveWarning" hidden></div>
 
     <div class="form-row two">
       <div>
@@ -907,6 +956,9 @@ function readForm() {
     seniorityHours: val('f_seniorityHours').trim(),
     noticeDate: val('f_noticeDate'),
     effectiveDate: val('f_effectiveDate'),
+    onLeave: document.getElementById('f_onLeave').checked,
+    leaveReturnDate: val('f_leaveReturnDate'),
+    leaveType: val('f_leaveType').trim(),
     decisionMade: document.getElementById('f_decisionMade').checked,
     optionChosen: val('f_optionChosen').trim(),
     bumpsIntoId: val('f_bumpsIntoId'),
@@ -922,7 +974,36 @@ function updateComputed() {
   setDeadlineField('f_deadline', 'deadlineHint', addDays(notice, CONFIG.DECISION_WINDOW_DAYS));
   // Secondary (60-day) deadline.
   setDeadlineField('f_deadline2', 'deadline2Hint', addDays(notice, CONFIG.SECONDARY_WINDOW.days));
+  updateLeaveWarning();
   updateGateHint();
+}
+
+/* Live feedback on the on-leave / return-date / effective-date relationship. */
+function updateLeaveWarning() {
+  const fields = document.getElementById('leaveFields');
+  const warn = document.getElementById('leaveWarning');
+  const onLeaveEl = document.getElementById('f_onLeave');
+  if (!warn || !onLeaveEl) return;
+  const onLeave = onLeaveEl.checked;
+  if (fields) fields.hidden = !onLeave;
+  if (!onLeave) { warn.hidden = true; return; }
+
+  const returnDate = val('f_leaveReturnDate');
+  const effDate = val('f_effectiveDate');
+  if (!returnDate) {
+    warn.hidden = false;
+    warn.className = 'form-warning';
+    warn.innerHTML = `⚠️ On leave — record an expected <strong>return date</strong> so the Effective Date can be checked against it.`;
+    return;
+  }
+  if (effDate && effDate < returnDate) {
+    warn.hidden = false;
+    warn.className = 'form-warning form-error';
+    warn.innerHTML = `⛔ Effective Date (${esc(fmtDate(effDate))}) is before this person's return from leave (${esc(fmtDate(returnDate))}).
+      <button type="button" class="btn btn-ghost btn-sm" id="btnUseReturnDate">Use return date as Effective Date</button>`;
+    return;
+  }
+  warn.hidden = true;
 }
 
 function setDeadlineField(inputId, hintId, dl) {
@@ -1170,6 +1251,25 @@ function wireFormEvents(c) {
   ['f_status', 'f_decisionMade', 'f_optionChosen'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('change', updateGateHint);
+  });
+
+  // Leave-of-absence: show/hide return-date fields and check them against
+  // the Effective Date live as the operator edits either.
+  ['f_onLeave', 'f_leaveReturnDate', 'f_effectiveDate'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(id === 'f_onLeave' ? 'change' : 'input', () => {
+      updateLeaveWarning();
+      updateGateHint();
+    });
+  });
+  // "Use return date as Effective Date" button is re-rendered dynamically
+  // inside the warning panel, so bind via delegation on the form.
+  document.getElementById('caseForm').addEventListener('click', e => {
+    if (e.target && e.target.id === 'btnUseReturnDate') {
+      document.getElementById('f_effectiveDate').value = val('f_leaveReturnDate');
+      updateLeaveWarning();
+      updateGateHint();
+    }
   });
 
   // Capture / refresh the seniority snapshot from the current list.
