@@ -176,6 +176,7 @@ const Store = {
     try { this.seniorityMeta = JSON.parse(localStorage.getItem('s54_seniorityMeta')) || null; } catch { this.seniorityMeta = null; }
     try { this.audit = JSON.parse(localStorage.getItem('s54_audit')) || []; } catch { this.audit = []; }
     try { this.vacancies = JSON.parse(localStorage.getItem('s54_vacancies')) || []; } catch { this.vacancies = []; }
+    this.migrateCases();
   },
   saveCases() { localStorage.setItem('s54_cases', JSON.stringify(this.cases)); },
   saveSeniority() {
@@ -199,6 +200,23 @@ const Store = {
     this.audit = Array.isArray(data.audit) ? data.audit : [];
     this.vacancies = Array.isArray(data.vacancies) ? data.vacancies : [];
     this.saveCases(); this.saveSeniority(); this.saveAudit(); this.saveVacancies();
+    this.migrateCases();
+  },
+  // Safety net for any real browser data saved under the old (misspelled)
+  // `seniaritySnapshot` key, from before it was renamed to `senioritySnapshot`.
+  migrateCases() {
+    let changed = false;
+    this.cases.forEach(c => {
+      if (c.senioritySnapshot === undefined && c.seniaritySnapshot !== undefined) {
+        c.senioritySnapshot = c.seniaritySnapshot;
+        changed = true;
+      }
+      if (Object.prototype.hasOwnProperty.call(c, 'seniaritySnapshot')) {
+        delete c.seniaritySnapshot;
+        changed = true;
+      }
+    });
+    if (changed) this.saveCases();
   },
 };
 
@@ -1536,7 +1554,7 @@ function snapshotPanelHTML(c) {
   const canCapture = Store.seniority.length > 0;
   return `<div class="snapshot-panel warn">
     <div class="snapshot-title">⚠️ No seniority snapshot</div>
-    <div class="snapshot-body muted">A snapshot freezes this employee's seniority as it stands today — your defensible record of what the list showed at decision time. ${canCapture ? 'Click below (or pick the name from the list) to capture it.' : 'Upload a seniority list first to enable this.'}</div>
+    <div class="snapshot-body muted">A snapshot freezes this employee's seniority as it stands when captured — your defensible record of what the list showed at that point. ${canCapture ? 'Click below (or pick the name from the list) to capture it.' : 'Upload a seniority list first to enable this.'}</div>
     ${canCapture ? `<button type="button" class="btn btn-ghost btn-sm" id="btnReSnapshot">Capture snapshot now</button>` : ''}
   </div>`;
 }

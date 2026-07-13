@@ -214,10 +214,11 @@ Lookout reports don't have one — this degrades gracefully).
   requires the data that stage implies — see `CONFIG.STATUS_GATES`.
 - **Bump-validity hard blocks** on save (junior test, casual/temp target) —
   see above.
-- **Seniority snapshot per case.** When a case is created/decided, the
-  employee's seniority record (including employment status and hire date, if
-  known) is **frozen** with a timestamp and the provenance of the uploaded
-  list (filename + upload time). Refreshable from the form.
+- **Seniority snapshot per case.** When a case is first saved, auto-created in
+  a chain, or manually refreshed from the form, the employee's seniority
+  record (including employment status and hire date, if known) is **frozen**
+  with a timestamp and the provenance of the uploaded list (filename + upload
+  time) — what the list showed *when captured*.
 - **Decision timestamps.** The exact moment "Decision made" is first recorded
   is stamped and shown.
 - **Audit log.** Every create / edit / decision / chain link / seniority
