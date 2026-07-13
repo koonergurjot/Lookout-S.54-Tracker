@@ -37,7 +37,7 @@ const CONFIG = {
   STATUS_GATES: {
     'Decision Required': ['noticeDate'],                       // need a deadline to act against
     'Completed':         ['decisionMade', 'resolution', 'leaveOk'], // a real, recorded outcome
-    'Laid Off':          ['decisionMade', 'leaveOk'],          // an accepted-layoff decision
+    'Laid Off':          ['decisionMade', 'resolution', 'leaveOk'], // an accepted-layoff decision
   },
 };
 
@@ -62,7 +62,7 @@ function newCase(overrides = {}) {
     status: 'Pending',
     notes: '',
     // ---- defensibility / audit fields ----
-    seniaritySnapshot: null, // frozen seniority record at decision time
+    senioritySnapshot: null, // frozen seniority record at decision time
     createdAt: now,
     updatedAt: now,
   }, overrides);
@@ -79,6 +79,7 @@ const Store = {
     try { this.seniority = JSON.parse(localStorage.getItem('s54_seniority')) || []; } catch { this.seniority = []; }
     try { this.seniorityMeta = JSON.parse(localStorage.getItem('s54_seniorityMeta')) || null; } catch { this.seniorityMeta = null; }
     try { this.audit = JSON.parse(localStorage.getItem('s54_audit')) || []; } catch { this.audit = []; }
+    this.migrateCases();
   },
   saveCases() { localStorage.setItem('s54_cases', JSON.stringify(this.cases)); },
   saveSeniority() {
@@ -87,6 +88,20 @@ const Store = {
   },
   saveAudit() { localStorage.setItem('s54_audit', JSON.stringify(this.audit)); },
   getCase(id) { return this.cases.find(c => c.id === id); },
+  migrateCases() {
+    let changed = false;
+    this.cases.forEach(c => {
+      if (c.senioritySnapshot === undefined && c.seniaritySnapshot !== undefined) {
+        c.senioritySnapshot = c.seniaritySnapshot;
+        changed = true;
+      }
+      if (Object.prototype.hasOwnProperty.call(c, 'seniaritySnapshot')) {
+        delete c.seniaritySnapshot;
+        changed = true;
+      }
+    });
+    if (changed) this.saveCases();
+  },
 };
 
 /* ============================================================
@@ -252,7 +267,7 @@ function caseWarnings(c) {
     else if (leaveConflict(c)) w.push(`Effective Date is before return from leave (returns ${fmtDate(c.leaveReturnDate)})`);
   }
   // Defensibility: no frozen seniority snapshot backing this case.
-  if (!c.seniaritySnapshot) w.push('No seniority snapshot on record');
+  if (!c.senioritySnapshot) w.push('No seniority snapshot on record');
   // Incomplete chain: a person was bumped but their own next move isn't resolved.
   if (c.bumpsIntoId) {
     const next = Store.getCase(c.bumpsIntoId);
@@ -560,7 +575,7 @@ function renderDashboard() {
     const d = daysUntil(decisionDeadline(c));
     return d !== null && d >= 0 && d <= CONFIG.UPCOMING_DEADLINE_DAYS;
   });
-  const noSnapshot = cases.filter(c => !c.seniaritySnapshot);
+  const noSnapshot = cases.filter(c => !c.senioritySnapshot);
   const onLeave = cases.filter(c => isActive(c) && c.onLeave);
   const leaveConflicts = onLeave.filter(leaveConflict);
 
@@ -916,8 +931,8 @@ function buildFormHTML(c) {
 
 /* Seniority snapshot panel: shows the frozen record, or offers to capture one. */
 function snapshotPanelHTML(c) {
-  if (c.seniaritySnapshot) {
-    const s = c.seniaritySnapshot;
+  if (c.senioritySnapshot) {
+    const s = c.senioritySnapshot;
     return `<div class="snapshot-panel ok">
       <div class="snapshot-title">📌 Seniority snapshot on record</div>
       <div class="snapshot-body">${esc(s.name)} — ${esc(s.position) || 'no position'}, ${esc(s.site) || 'no site'}, <strong>${esc(s.seniorityHours) || '—'}h</strong>
@@ -928,7 +943,7 @@ function snapshotPanelHTML(c) {
   const canCapture = Store.seniority.length > 0;
   return `<div class="snapshot-panel warn">
     <div class="snapshot-title">⚠️ No seniority snapshot</div>
-    <div class="snapshot-body muted">A snapshot freezes this employee's seniority as it stands today — your defensible record of what the list showed at decision time. ${canCapture ? 'Click below (or pick the name from the list) to capture it.' : 'Upload a seniority list first to enable this.'}</div>
+    <div class="snapshot-body muted">A snapshot freezes this employee's seniority as it stands when captured — your defensible record of what the list showed at that point. ${canCapture ? 'Click below (or pick the name from the list) to capture it.' : 'Upload a seniority list first to enable this.'}</div>
     ${canCapture ? `<button type="button" class="btn btn-ghost btn-sm" id="btnReSnapshot">Capture snapshot now</button>` : ''}
   </div>`;
 }
@@ -1104,10 +1119,10 @@ function saveCase(e) {
   if (!target.decisionMade) target.decisionMadeAt = '';
 
   // Seniority snapshot: explicit capture, else auto-capture if none yet & name matches.
-  if (stagedSnapshot) target.seniaritySnapshot = stagedSnapshot;
-  else if (!target.seniaritySnapshot) {
+  if (stagedSnapshot) target.senioritySnapshot = stagedSnapshot;
+  else if (!target.senioritySnapshot) {
     const auto = captureSnapshot(target.name);
-    if (auto) target.seniaritySnapshot = auto;
+    if (auto) target.senioritySnapshot = auto;
   }
 
   target.updatedAt = new Date().toISOString();
@@ -1150,7 +1165,7 @@ function handleBumpLink(target) {
         position: sen ? sen.position : '',
         seniorityHours: sen ? sen.seniorityHours : '',
         status: 'Decision Required',   // they now must decide
-        seniaritySnapshot: captureSnapshot(typedName),  // freeze their seniority too
+        senioritySnapshot: captureSnapshot(typedName),  // freeze their seniority too
       });
       Store.cases.push(bumped);
       // Audit the automatic downstream case — closes the "missed person" gap.
@@ -1200,7 +1215,7 @@ function wireSnapshotButton() {
     toast('Snapshot staged — saves with the case');
     const panel = document.querySelector('.snapshot-panel');
     if (panel) {
-      panel.outerHTML = snapshotPanelHTML(Object.assign({}, readForm(), { seniaritySnapshot: snap }));
+      panel.outerHTML = snapshotPanelHTML(Object.assign({}, readForm(), { senioritySnapshot: snap }));
       wireSnapshotButton();   // re-bind on the freshly rendered panel
     }
   });
