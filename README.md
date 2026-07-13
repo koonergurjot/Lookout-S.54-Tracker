@@ -98,10 +98,10 @@ These exist because labour-relations decisions must be defensible:
   case into *Decision Required / Completed / Laid Off* without the data that
   status implies (e.g. *Completed* requires a recorded decision **and** an
   outcome). The form shows live 🔒 hints and blocks the save with a reason.
-- **Seniority snapshot per case.** When a case is created/decided, the
-  employee's seniority record is **frozen** with a timestamp and the provenance
-  of the uploaded list (filename + upload time) — what the list showed *at the
-  time*. Refreshable from the form.
+- **Seniority snapshot per case.** When a case is first saved, auto-created in a
+  chain, or manually refreshed from the form, the employee's seniority record is
+  **frozen** with a timestamp and the provenance of the uploaded list (filename
+  + upload time) — what the list showed *when captured*.
 - **Decision timestamps.** The exact moment "Decision made" is first recorded
   is stamped and shown.
 - **Audit log.** Every create / edit / decision / chain link / seniority upload
