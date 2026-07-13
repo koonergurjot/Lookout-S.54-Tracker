@@ -72,6 +72,22 @@ A sample file, `public/sample-seniority.csv`, is included so you can try it imme
 ### Statuses
 `Pending` → `Decision Required` → `Completed` / `Laid Off`
 
+### Leave of absence
+
+A case can be marked **On Leave**, with an **Expected Return Date** (and an
+optional Leave Type — Medical / Parental / WCB / etc.). This matters because a
+bump or layoff can't take effect while someone is still away:
+
+- Checking *On Leave* requires a return date to save at all (hard-enforced,
+  like the other critical fields).
+- If the **Effective Date** is set earlier than the return date, the form
+  flags it and offers a one-click **Use return date as Effective Date** fix.
+- A case **cannot** be moved to *Completed* or *Laid Off* while that conflict
+  exists — the status gate blocks it until the Effective Date is on/after the
+  return date.
+- The Dashboard has a **Staff On Leave** card/section, and on-leave cases show
+  a 🏖 badge in the Cases list.
+
 ## Compliance / defensibility features
 
 These exist because labour-relations decisions must be defensible:
